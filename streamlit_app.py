@@ -1,18 +1,19 @@
 import streamlit as st
 import pandas as pd
-import os
+from supabase import create_client, Client
 from datetime import datetime, timedelta
 
-# --- 1. 설정 및 경로 ---
-DB_FILES = {
-    "MAIN": "library_db.csv",
-    "HISTORY": "return_history.csv"
-}
+# --- 1. Supabase 접속 정보 설정 ---
+SUPABASE_URL = "https://cqpdqbuspkndsbgdclnx.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxcGRxYnVzcGtuZHNiZ2RjbG54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2Nzc5NTAsImV4cCI6MjA5MTI1Mzk1MH0.XuNFjhEoCSIQabPY8ND4tSW5zvu_N90IhEvaI9gPYH0"
 ADMIN_PASSWORD = "00130"
 
-st.set_page_config(page_title="도서관 시스템", page_icon="📚", layout="wide")
+# Supabase 클라이언트 초기화
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- 2. CSS 스타일 (UI 디자인) ---
+st.set_page_config(page_title="도서관 통합 시스템", page_icon="📚", layout="wide")
+
+# --- 2. CSS 스타일 (대식 님 맞춤형) ---
 st.markdown("""
 <style>
     div.stButton > button { font-size: 20px !important; height: 70px !important; width: 100% !important; font-weight: bold !important; border-radius: 12px !important; }
@@ -22,25 +23,18 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. 데이터 엔진 ---
-def initialize_system():
-    if not os.path.exists(DB_FILES["MAIN"]):
-        pd.DataFrame(columns=['등록번호', '자료명', '상태', '대출자', '대출일시', '반납일']).to_csv(DB_FILES["MAIN"], index=False, encoding='utf-8-sig')
-    if not os.path.exists(DB_FILES["HISTORY"]):
-        pd.DataFrame(columns=['반납일시', '반납자', '도서명', '등록번호']).to_csv(DB_FILES["HISTORY"], index=False, encoding='utf-8-sig')
+# --- 3. 데이터 조작 함수 ---
+def fetch_all_books():
+    res = supabase.table("library_db").select("*").execute()
+    return pd.DataFrame(res.data)
 
-initialize_system()
+def fetch_history():
+    res = supabase.table("return_history").select("*").order("return_date", ascending=False).execute()
+    return pd.DataFrame(res.data)
 
-if 'df' not in st.session_state:
-    st.session_state.df = pd.read_csv(DB_FILES["MAIN"], dtype=str).fillna('')
-if 'history_df' not in st.session_state:
-    st.session_state.history_df = pd.read_csv(DB_FILES["HISTORY"], dtype=str).fillna('')
+# 세션 모드 초기화
 if 'mode' not in st.session_state:
     st.session_state.mode = 'main'
-
-def save_to_csv():
-    st.session_state.df.to_csv(DB_FILES["MAIN"], index=False, encoding='utf-8-sig')
-    st.session_state.history_df.to_csv(DB_FILES["HISTORY"], index=False, encoding='utf-8-sig')
 
 # --- 4. 화면 구성 ---
 t1, t2 = st.tabs(["👋 대출/반납 이용하기", "🔐 관리자 모드"])
@@ -58,92 +52,83 @@ with t1:
     # --- 대출 모드 ---
     elif st.session_state.mode == 'loan':
         if st.button("⬅ 처음으로 돌아가기"): st.session_state.mode = 'main'; st.rerun()
-            
-        st.subheader("📘 대출 모드")
-        # 요청사항 반영: 대출자 학번 (교직원은 이름)
         borrower = st.text_input("대출자 학번 (교직원은 이름)")
-        
-        # 요청사항 반영: 예시를 들어 설명
         reg_text = st.text_area("도서 등록번호 스캔 (여러 권은 엔터로 구분)", height=200, 
-                                placeholder="바코드를 찍으면 번호가 입력됩니다. 여러 권일 경우 아래 예시처럼 줄을 바꿔서 찍어주세요.\n\n예시:\n0025806\n0025807\n0025808")
+                                placeholder="예:\n0025806\n0025807")
 
         if st.button("🚀 대출 실행 (Click)"):
             if not borrower or not reg_text.strip():
                 st.warning("⚠️ 대출자 정보와 도서 번호를 모두 입력해야 합니다.")
             else:
                 reg_list = [x.strip() for x in reg_text.split('\n') if x.strip()]
+                loan_date = datetime.now().strftime("%Y-%m-%d %H:%M")
                 due_date = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
-                loan_now = datetime.now().strftime("%Y-%m-%d %H:%M")
                 
                 for reg_no in reg_list:
-                    idx = st.session_state.df[st.session_state.df['등록번호'] == reg_no].index
-                    if not idx.empty:
-                        st.session_state.df.at[idx[0], '상태'] = '대출중'
-                        st.session_state.df.at[idx[0], '대출자'] = borrower
-                        st.session_state.df.at[idx[0], '대출일시'] = loan_now
-                        st.session_state.df.at[idx[0], '반납일'] = due_date
-                    else:
-                        new_book = {'등록번호': reg_no, '자료명': f'미등록도서({reg_no})', '상태': '대출중', '대출자': borrower, '대출일시': loan_now, '반납일': due_date}
-                        st.session_state.df = pd.concat([st.session_state.df, pd.DataFrame([new_book])], ignore_index=True)
+                    # upsert: 있으면 수정, 없으면 새로 등록
+                    data = {
+                        "reg_no": reg_no,
+                        "title": f"미등록도서({reg_no})",
+                        "status": "대출중",
+                        "borrower": borrower,
+                        "loan_date": loan_date,
+                        "due_date": due_date
+                    }
+                    supabase.table("library_db").upsert(data, on_conflict="reg_no").execute()
                 
-                save_to_csv()
-                st.markdown(f'<div class="success-msg">✅ {len(reg_list)}권 대출 완료!<br>반납 예정일: {due_date}</div>', unsafe_allow_html=True)
-                if st.button("처음으로"): st.session_state.mode = 'main'; st.rerun()
+                st.markdown(f'<div class="success-msg">✅ 총 {len(reg_list)}권 대출 완료! (반납예정일: {due_date})</div>', unsafe_allow_html=True)
+                if st.button("확인"): st.session_state.mode = 'main'; st.rerun()
 
     # --- 반납 모드 ---
     elif st.session_state.mode == 'return':
         if st.button("⬅ 처음으로 돌아가기"): st.session_state.mode = 'main'; st.rerun()
-
-        st.subheader("📗 반납 모드")
-        reg_text = st.text_area("도서 앞표지 등록번호 스캔 (여러 권은 엔터로 구분)", height=200,
-                                placeholder="반납할 도서의 바코드를 스캔하세요.\n\n예시:\n0025806\n0025807")
+        reg_text = st.text_area("반납할 도서 번호 스캔 (여러 권은 엔터로 구분)", height=200)
 
         if st.button("✅ 반납 실행 (Click)"):
             if not reg_text.strip():
-                st.warning("⚠️ 반납할 도서 번호를 입력해 주세요.")
+                st.warning("⚠️ 도서 번호를 입력해 주세요.")
             else:
                 reg_list = [x.strip() for x in reg_text.split('\n') if x.strip()]
-                return_now = datetime.now().strftime("%Y-%m-%d %H:%M")
+                return_date = datetime.now().strftime("%Y-%m-%d %H:%M")
                 
                 for reg_no in reg_list:
-                    idx = st.session_state.df[st.session_state.df['등록번호'] == reg_no].index
-                    if not idx.empty:
-                        history_entry = {'반납일시': return_now, '반납자': st.session_state.df.at[idx[0], '대출자'], '도서명': st.session_state.df.at[idx[0], '자료명'], '등록번호': reg_no}
-                        st.session_state.history_df = pd.concat([st.session_state.history_df, pd.DataFrame([history_entry])], ignore_index=True)
-                        st.session_state.df.at[idx[0], '상태'] = '대출가능'; st.session_state.df.at[idx[0], '대출자'] = ''; st.session_state.df.at[idx[0], '대출일시'] = ''; st.session_state.df.at[idx[0], '반납일'] = ''
+                    # 기존 정보 조회
+                    book_res = supabase.table("library_db").select("*").eq("reg_no", reg_no).execute()
+                    if book_res.data:
+                        book = book_res.data[0]
+                        # 히스토리 기록
+                        history_data = {
+                            "reg_no": reg_no,
+                            "title": book['title'],
+                            "borrower": book['borrower'],
+                            "return_date": return_date
+                        }
+                        supabase.table("return_history").insert(history_data).execute()
+                        # 도서 상태 업데이트
+                        supabase.table("library_db").update({"status": "대출가능", "borrower": "", "loan_date": "", "due_date": ""}).eq("reg_no", reg_no).execute()
                 
-                save_to_csv()
-                st.markdown(f'<div class="success-msg">🔙 {len(reg_list)}권 반납 처리가 완료되었습니다!</div>', unsafe_allow_html=True)
-                if st.button("처음으로"): st.session_state.mode = 'main'; st.rerun()
+                st.markdown(f'<div class="success-msg">🔙 총 {len(reg_list)}권 반납 처리가 완료되었습니다!</div>', unsafe_allow_html=True)
+                if st.button("확인"): st.session_state.mode = 'main'; st.rerun()
 
 # [탭 2: 관리자 모드]
 with t2:
     st.header("🔐 도서관 관리자 전용")
-    password = st.text_input("비밀번호를 입력하세요", type="password")
-    
+    password = st.text_input("비밀번호", type="password")
     if password == ADMIN_PASSWORD:
-        st.success("인증되었습니다.")
-        
         st.subheader("📊 1. 전체 도서 및 대출 현황")
-        edited_main = st.data_editor(st.session_state.df, use_container_width=True, num_rows="dynamic", key="main_db_editor")
-        if st.button("💾 도서 DB 변경사항 저장"):
-            st.session_state.df = edited_main
-            save_to_csv(); st.toast("도서 DB가 저장되었습니다!")
-
-        st.divider()
-
-        st.subheader("📜 2. 전체 반납 기록 (히스토리)")
-        history_display = st.session_state.history_df.sort_index(ascending=False)
-        edited_history = st.data_editor(history_display, use_container_width=True, num_rows="dynamic", key="history_db_editor")
-        if st.button("💾 반납 히스토리 변경사항 저장"):
-            st.session_state.history_df = edited_history
-            save_to_csv(); st.toast("반납 기록이 저장되었습니다!")
-            
-        st.divider()
+        df_books = fetch_all_books()
+        edited_books = st.data_editor(df_books, use_container_width=True, num_rows="dynamic", key="editor_books")
         
-        st.subheader("📥 데이터 백업")
-        c1, c2 = st.columns(2)
-        with c1:
-            st.download_button("도서 DB 다운로드 (.csv)", data=st.session_state.df.to_csv(index=False, encoding='utf-8-sig'), file_name=f"library_db_{datetime.now().strftime('%y%m%d')}.csv")
-        with c2:
-            st.download_button("반납 기록 다운로드 (.csv)", data=st.session_state.history_df.to_csv(index=False, encoding='utf-8-sig'), file_name=f"return_history_{datetime.now().strftime('%y%m%d')}.csv")
+        if st.button("💾 도서 DB 변경사항 저장"):
+            # 수동으로 행 삭제/수정 시 Supabase 반영 로직 필요 (여기선 조회 위주로 구성)
+            st.info("개별 수정은 Supabase 대시보드에서 하거나, 추가 개발이 필요합니다.")
+
+        st.divider()
+        st.subheader("📜 2. 전체 반납 기록")
+        df_history = fetch_history()
+        st.dataframe(df_history, use_container_width=True)
+        
+        if st.button("🗑 전체 기록 삭제 (초기화)"):
+            if st.checkbox("정말로 모든 반납 기록을 삭제하시겠습니까?"):
+                supabase.table("return_history").delete().neq("reg_no", "0").execute()
+                st.rerun()
