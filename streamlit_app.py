@@ -46,14 +46,14 @@ with t1:
             st.session_state.mode = 'loan'; st.rerun()
         if c2.button("📗 반납하기"):
             st.session_state.mode = 'return'; st.rerun()
-        st.markdown('<div class="notice-box">📢 대출은 14일간 가능하며, 누구든 자유롭게 이용하세요!</div>', unsafe_allow_html=True)
+        st.markdown('<div class="notice-box">📢 스터디룸 예약은 도서관 홈페이지에서 진행해주세요!</div>', unsafe_allow_html=True)
 
     elif st.session_state.mode == 'loan':
         if st.button("⬅ 뒤로"): st.session_state.mode = 'main'; st.rerun()
-        borrower = st.text_input("대출자 (이름 또는 학번)")
-        reg_text = st.text_area("도서 등록번호 (여러 권은 엔터로 구분)", height=200, placeholder="예:\n1001\n1002\n1003")
+        borrower = st.text_input("대출자 학번 (교직원은 이름)")
+        reg_text = st.text_area("도서 등록번호 (여러 권은 엔터로 구분)", height=200, placeholder="예:\n0025806\n0025807\n0025808")
 
-        if st.button("대출 실행"):
+        if st.button("대출 실행(Click)"):
             if not borrower or not reg_text.strip():
                 st.warning("대출자와 도서 번호를 모두 입력해주세요.")
             else:
@@ -81,9 +81,9 @@ with t1:
 
     elif st.session_state.mode == 'return':
         if st.button("⬅ 뒤로"): st.session_state.mode = 'main'; st.rerun()
-        reg_text = st.text_area("반납할 도서 번호 (여러 권은 엔터로 구분)", height=200)
+        reg_text = st.text_area("도서 앞 표지 등록번호 바코드 스캔 (여러 권은 엔터로 구분)", height=200)
 
-        if st.button("반납 실행"):
+        if st.button("반납 실행(Click)"):
             if not reg_text.strip():
                 st.warning("도서 번호를 입력해주세요.")
             else:
