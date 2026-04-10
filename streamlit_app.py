@@ -49,7 +49,7 @@ t1, t2 = st.tabs(["👋 대출/반납 이용", "🔐 관리자 모드"])
 
 with t1:
     if st.session_state.mode == 'main':
-        st.markdown("<h2 style='text-align: center;'>작업을 선택해 주세요</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align: center;'>무인 대출반납 PC</h2>", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         if c1.button("📘 대출하기 (Loan)"):
             st.session_state.mode = 'loan'; st.rerun()
