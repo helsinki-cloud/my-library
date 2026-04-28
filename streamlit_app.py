@@ -82,7 +82,7 @@ with t1:
                 
                 st.markdown(f'<div class="success-msg">✅ {len(reg_list)}권 대출 완료! (반납예정일: {due_date})<br>잠시 후 홈으로 이동합니다.</div>', unsafe_allow_html=True)
                 st.session_state.mode = 'main'
-                time.sleep(2)
+                time.sleep(6)
                 st.rerun()
 
     # --- 반납 모드 ---
@@ -118,7 +118,7 @@ with t1:
                 
                 st.markdown(f'<div class="success-msg">🔙 {success_count}권 반납 완료!<br>잠시 후 홈으로 이동합니다.</div>', unsafe_allow_html=True)
                 st.session_state.mode = 'main'
-                time.sleep(2)
+                time.sleep(6)
                 st.rerun()
 
 # --- 5. 관리자 모드 ---
