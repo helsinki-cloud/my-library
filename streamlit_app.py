@@ -56,7 +56,7 @@ with t1:
             st.session_state.mode = 'loan'; st.rerun()
         if c2.button("📗 반납하기 (Return)"):
             st.session_state.mode = 'return'; st.rerun()
-        st.markdown('<div class="notice-box">📢 스터디룸 예약은 도서관 홈페이지에서 진행해주세요!</div>', unsafe_allow_html=True)
+        st.markdown('<div class="notice-box">대출 기간은 14일입니다. <br> 📢 스터디룸 예약은 도서관 홈페이지에서 진행해주세요!</div>', unsafe_allow_html=True)
 
     # --- 대출 모드 (Loan) ---
     elif st.session_state.mode == 'loan':
