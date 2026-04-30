@@ -6,7 +6,6 @@ import pytz
 import time
 
 # --- 1. 설정 및 접속 정보 ---
-# 보안 권장: st.secrets["SUPABASE_URL"] 형태로 관리하세요.
 SUPABASE_URL = "https://cqpdqbuspkndsbgdclnx.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNxcGRxYnVzcGtuZHNiZ2RjbG54Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2Nzc5NTAsImV4cCI6MjA5MTI1Mzk1MH0.XuNFjhEoCSIQabPY8ND4tSW5zvu_N90IhEvaI9gPYH0"
 ADMIN_PASSWORD = "00130"
@@ -27,7 +26,8 @@ st.markdown("""
     div.stButton > button { font-size: 22px !important; height: 75px !important; font-weight: bold !important; border-radius: 15px !important; }
     .success-msg { font-size: 24px; font-weight: bold; color: #155724; background-color: #d4edda; padding: 25px; border-radius: 15px; text-align: center; border: 2px solid #c3e6cb; line-height: 1.6; }
     .notice-box { font-size: 28px; font-weight: bold; color: #721c24; background-color: #f8d7da; padding: 30px; border-radius: 15px; text-align: center; margin-top: 40px; border: 3px solid #f5c6cb; }
-    .highlight { color: #d63384; font-size: 30px; text-decoration: underline; }
+    .highlight { color: #d63384; font-size: 30px; text-decoration: underline; font-weight: 800; }
+    input { font-size: 20px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -63,21 +63,23 @@ with t1:
         if st.button("⬅ 뒤로가기"): st.session_state.mode = 'main'; st.rerun()
         st.subheader("📘 도서 대출")
         
-        borrower = st.text_input("대출자 식별 정보 (학번 또는 성명)")
-        reg_text = st.text_area("도서 등록번호 스캔 (엔터로 구분)", height=200, placeholder="바코드를 스캔하세요...")
+        # 수정된 입력 문구
+        borrower = st.text_input("학번을 입력해주세요(교직원은 성명)")
+        # 수정된 placeholder
+        reg_text = st.text_area("도서 등록번호 스캔 (엔터로 구분)", height=200, placeholder="바코드를 스캔하세요 ex) 0026528")
 
         if st.button("🚀 대출 확인"):
             if not borrower or not reg_text.strip():
-                st.warning("⚠️ 대출자 정보와 도서 번호를 모두 입력해주세요.")
+                st.warning("⚠️ 정보가 누락되었습니다. 학번과 바코드를 확인해주세요.")
             else:
                 reg_list = [x.strip() for x in reg_text.split('\n') if x.strip()]
                 now_kst = datetime.now(KST)
                 loan_date_str = now_kst.strftime("%Y-%m-%d %H:%M")
                 due_date_str = (now_kst + timedelta(days=14)).strftime("%Y-%m-%d")
                 
-                with st.spinner("처리 중..."):
+                with st.spinner("데이터 기록 중..."):
                     for r in reg_list:
-                        # [핵심] 기존 도서가 있는지 확인하여 제목 유실 방지
+                        # 기존 도서 제목 유지를 위해 선조회
                         existing = supabase.table("library_db").select("title").eq("reg_no", r).execute()
                         
                         update_data = {
@@ -88,19 +90,18 @@ with t1:
                             "due_date": due_date_str
                         }
                         
-                        # 도서가 DB에 없을 때만 '미등록도서'로 추가
                         if not existing.data:
                             update_data["title"] = f"미등록도서({r})"
                         
                         supabase.table("library_db").upsert(update_data, on_conflict="reg_no").execute()
 
-                # 성공 메시지 출력
+                # 반납 예정일 강조 출력
                 st.balloons()
                 st.markdown(f"""
                 <div class="success-msg">
-                    ✅ <b>{len(reg_list)}권</b> 대출 처리가 완료되었습니다.<br>
-                    📅 반납 예정일: <span class="highlight">{due_date_str}</span> (14일간)<br>
-                    <small>5초 후 초기 화면으로 돌아갑니다.</small>
+                    ✅ <b>{len(reg_list)}권</b> 대출 완료!<br>
+                    📅 반납 예정일: <span class="highlight">{due_date_str}</span><br>
+                    <small>잠시 후 자동으로 메인 화면으로 이동합니다.</small>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -112,7 +113,7 @@ with t1:
     elif st.session_state.mode == 'return':
         if st.button("⬅ 뒤로가기"): st.session_state.mode = 'main'; st.rerun()
         st.subheader("📗 도서 반납")
-        reg_text = st.text_area("반납할 도서 바코드 스캔", height=200)
+        reg_text = st.text_area("반납할 도서 바코드 스캔", height=200, placeholder="바코드를 스캔하세요...")
 
         if st.button("✅ 반납 확인"):
             if not reg_text.strip():
@@ -127,36 +128,33 @@ with t1:
                     book_title = res.data[0]['title'] if res.data else f"미등록({r})"
                     borrower_name = res.data[0]['borrower'] if res.data else "기록없음"
                     
-                    # 히스토리 기록
                     supabase.table("return_history").insert({
                         "reg_no": r, "title": book_title, "borrower": borrower_name, "return_date": return_now
                     }).execute()
                     
-                    # 도서 상태 업데이트
                     if res.data:
                         supabase.table("library_db").update({
                             "status": "대출가능", "borrower": "", "loan_date": "", "due_date": ""
                         }).eq("reg_no", r).execute()
                 
-                st.markdown(f'<div class="success-msg">🔙 {len(reg_list)}권 반납 완료!<br>수고하셨습니다.</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="success-msg">🔙 {len(reg_list)}권 반납 처리가 완료되었습니다.</div>', unsafe_allow_html=True)
                 time.sleep(3)
                 st.session_state.mode = 'main'
                 st.rerun()
 
 # --- 5. 관리자 모드 ---
 with t2:
-    pw = st.text_input("관리자 비밀번호", type="password")
+    pw = st.text_input("관리자 인증", type="password")
     if pw == ADMIN_PASSWORD:
-        st.success("🔓 관리자 인증 성공")
-        m_tab1, m_tab2 = st.tabs(["📊 실시간 대출 현황", "📜 반납 기록 조회"])
+        st.success("인증되었습니다.")
+        m_tab1, m_tab2 = st.tabs(["📊 대출 현황", "📜 기록 조회"])
         
         with m_tab1:
-            if st.button("🔄 현황 새로고침"): st.rerun()
             df_books = fetch_all_books()
-            st.data_editor(df_books, use_container_width=True, num_rows="dynamic", key="editor")
+            st.data_editor(df_books, use_container_width=True, num_rows="dynamic", key="lib_editor")
             
         with m_tab2:
             df_hist = fetch_history()
             st.dataframe(df_hist, use_container_width=True)
             csv = df_hist.to_csv(index=False, encoding='utf-8-sig')
-            st.download_button("📥 반납 기록 다운로드 (CSV)", csv, f"library_history_{datetime.now().strftime('%Y%m%d')}.csv")
+            st.download_button("📥 내역 다운로드 (CSV)", csv, "return_history.csv")
